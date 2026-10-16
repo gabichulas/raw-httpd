@@ -31,7 +31,8 @@ void *get_in_addr(struct sockaddr *sa) {
 }
 
 int main(int argc, char *argv[]) {
-  int rv, sockfd, new_fd, sin_size;
+  int rv, sockfd, new_fd;
+  uint sin_size;
   struct addrinfo hints, *servinfo, *p;
   struct sigaction sa;
   struct sockaddr_in their_addr;
