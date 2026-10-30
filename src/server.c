@@ -16,6 +16,21 @@ void *get_in_addr(struct sockaddr *sa) {
   return &(((struct sockaddr_in *)sa)->sin_addr);
 }
 
+int send_all(int fd, const void *buf, size_t len) {
+  const char *ptr = (const char *)buf;
+
+  while (len > 0) {
+    ssize_t byt = send(fd, ptr, len, 0);
+    if (byt == -1) {
+      return -1;
+    } else if (byt > 0) {
+      len -= byt;
+      ptr += byt;
+    }
+  }
+  return 0;
+}
+
 int main(int argc, char *argv[]) {
   (void)argc;
   (void)argv;
