@@ -1,40 +1,27 @@
 #include <arpa/inet.h>
-#include <asm-generic/socket.h>
-#include <errno.h>
+#include <bits/types/struct_timeval.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 #define PORT "3490"
 #define BACKLOG 5
-
-void sigchld_handler(int s) {
-  (void)s; // avoid unused variable warning
-
-  int saved_errno = errno;
-
-  while (waitpid(-1, NULL, WNOHANG) > 0)
-    ;
-
-  errno = saved_errno;
-}
 
 void *get_in_addr(struct sockaddr *sa) {
   return &(((struct sockaddr_in *)sa)->sin_addr);
 }
 
 int main(int argc, char *argv[]) {
+  (void)argc;
+  (void)argv;
   int rv, sockfd, new_fd;
-  uint sin_size;
+  socklen_t sin_size;
   struct addrinfo hints, *servinfo, *p;
-  struct sigaction sa;
   struct sockaddr_in their_addr;
   int yes = 1;
   char s[INET_ADDRSTRLEN];
@@ -44,7 +31,11 @@ int main(int argc, char *argv[]) {
   hints.ai_socktype = SOCK_STREAM; // tcp
   hints.ai_flags = AI_PASSIVE;
 
-  if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo) != 0)) {
+  struct timeval tv;
+  tv.tv_sec = 3;
+  tv.tv_usec = 0;
+
+  if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
     fprintf(stderr, "getaddrinfo: %s \n", gai_strerror(rv));
     return 1;
   }
@@ -81,12 +72,10 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  sa.sa_handler = sigchld_handler;
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = SA_RESTART;
-
   while (1) {
     sin_size = sizeof their_addr;
+
+    char buf[2048];
 
     new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
 
@@ -95,19 +84,36 @@ int main(int argc, char *argv[]) {
       continue;
     }
 
+    if ((setsockopt(new_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)) {
+      perror("setsockopt");
+      close(new_fd);
+      continue;
+    }
+
     inet_ntop(their_addr.sin_family,
               get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
 
     printf("server got connection from: %s\n", s);
+    ssize_t bytes_recv = recv(new_fd, buf, sizeof(buf) - 1, 0);
 
-    if (!fork()) {
-      close(sockfd);
-      if (send(new_fd, "Hola :)", 7, 0) == -1) {
-        perror("send");
+    if (bytes_recv <= 0) {
+      if (bytes_recv == 0) {
+        printf("client disconnected \n");
+      } else {
+        perror("recv");
       }
       close(new_fd);
-      exit(0);
+      continue;
     }
+
+    buf[bytes_recv] = '\0';
+
+    if ((send(new_fd, "hola", 4, 0)) < 0) {
+      perror("send");
+      close(new_fd);
+      continue;
+    }
+
     close(new_fd);
   }
 
