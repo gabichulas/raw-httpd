@@ -83,6 +83,21 @@ int parse_request(char *buf, size_t len, struct HttpRequest *req) {
 
   char *p = buf;
 
+  char *body = strstr(p, "\r\n\r\n");
+  if (body == NULL)
+    return -1;
+
+  *(body + 2) = '\0';
+
+  char *body_start = body + 4;
+  if ((body_start) == NULL) {
+    req->body = NULL;
+    req->body_len = 0;
+  } else {
+    req->body = body_start;
+    req->body_len = len - (body_start - buf);
+  }
+
   char *sp_1 = strchr(buf, ' ');
   if (sp_1 == NULL)
     return -1;
@@ -110,18 +125,9 @@ int parse_request(char *buf, size_t len, struct HttpRequest *req) {
 
   p = rn + 1;
 
-  while (1) {
-    if (check_rnrn(p) == 0) {
-      p = p + 3;
-      if (*p != '\0') {
-        req->body = p;
-        req->body_len = sizeof(*p);
-      }
-      req->size_h = sizeof(*req->h);
-      return 0;
-    }
+  while (*p != '\0' && i < 16) {
 
-    char *semicolon = strstr(p, ": ");
+    char *semicolon = strchr(p, ':');
     if (semicolon == NULL) {
       printf("header key not found");
       return -1;
@@ -132,23 +138,27 @@ int parse_request(char *buf, size_t len, struct HttpRequest *req) {
     struct HttpHeader header;
     header.key = p;
 
-    // printf("%s \n", p);
-    p = semicolon + 2;
+    while (*(semicolon + 1) == ' ' || *(semicolon + 1) == '\t')
+      semicolon++;
+    p = semicolon;
 
     char *head_lim = strstr(p, "\r\n");
     if (head_lim == NULL) {
       printf("header value not found");
       return -1;
     }
-    printf("%s \n", p);
 
     *head_lim = '\0';
+    // printf("%s \n", p);
 
     header.value = p;
-    p = head_lim + 1;
+    p = head_lim + 2;
+
     req->h[i] = header;
     i++;
   }
+
+  req->size_h = i;
 
   return 0;
 }
@@ -253,8 +263,8 @@ int main(int argc, char *argv[]) {
       continue;
     }
 
-    printf("%s %s %s %s %c\n", req.method, req.path, req.version, req.body,
-           (int)req.size_h);
+    printf("%s %s %s %s %zu\n", req.method, req.path, req.version, req.body,
+           req.size_h);
 
     const char *html_body = "<html><body><h1>Hola :)</h1></body></html>";
 
