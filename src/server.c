@@ -12,6 +12,21 @@
 #define PORT "3490"
 #define BACKLOG 5
 
+struct HttpHeader {
+  char *key;
+  char *value;
+};
+
+struct HttpRequest {
+  char *method;
+  char *path;
+  char *version;
+  struct HttpHeader h[16];
+  size_t size_h;
+  char *body;
+  size_t body_len;
+};
+
 void *get_in_addr(struct sockaddr *sa) {
   return &(((struct sockaddr_in *)sa)->sin_addr);
 }
@@ -28,6 +43,113 @@ int send_all(int fd, const void *buf, size_t len) {
       ptr += byt;
     }
   }
+  return 0;
+}
+
+void send_response(int fd, int status, char *reason, const char *type,
+                   const void *body, size_t len) {
+  char hdr[512];
+
+  int n = snprintf(hdr, sizeof(hdr),
+                   "HTTP/1.1 %d %s\r\n"
+                   "Content-Type: %s\r\n"
+                   "Content-Length: %zu\r\n"
+                   "Connection: close\r\n"
+                   "\r\n",
+                   status, reason, type, len);
+
+  if (n < 0 || n >= (int)sizeof(hdr)) {
+    return;
+  }
+
+  if (send_all(fd, hdr, n) == 0) {
+    send_all(fd, body, len);
+  }
+}
+
+int check_rnrn(char *delim) {
+  if (*(delim + 1) == '\r') {
+    if (*(delim + 2) == '\n') {
+      return 0;
+    }
+  }
+  return -1;
+}
+
+int parse_request(char *buf, size_t len, struct HttpRequest *req) {
+  int i = 0;
+  if (len <= 0)
+    return -1;
+
+  char *p = buf;
+
+  char *sp_1 = strchr(buf, ' ');
+  if (sp_1 == NULL)
+    return -1;
+
+  *sp_1 = '\0';
+  req->method = p;
+
+  p = sp_1 + 1;
+
+  char *sp_2 = strchr(p, ' ');
+  if (sp_2 == NULL)
+    return -1;
+
+  *sp_2 = '\0';
+  req->path = p;
+
+  p = sp_2 + 1;
+
+  char *rn = strstr(p, "\r\n");
+  if (rn == NULL)
+    return -1;
+
+  *rn = '\0';
+  req->version = p;
+
+  p = rn + 1;
+
+  while (1) {
+    if (check_rnrn(p) == 0) {
+      p = p + 3;
+      if (*p != '\0') {
+        req->body = p;
+        req->body_len = sizeof(*p);
+      }
+      req->size_h = sizeof(*req->h);
+      return 0;
+    }
+
+    char *semicolon = strstr(p, ": ");
+    if (semicolon == NULL) {
+      printf("header key not found");
+      return -1;
+    }
+
+    *semicolon = '\0';
+
+    struct HttpHeader header;
+    header.key = p;
+
+    // printf("%s \n", p);
+    p = semicolon + 2;
+
+    char *head_lim = strstr(p, "\r\n");
+    if (head_lim == NULL) {
+      printf("header value not found");
+      return -1;
+    }
+    printf("%s \n", p);
+
+    *head_lim = '\0';
+
+    header.value = p;
+    p = head_lim + 1;
+    req->h[i] = header;
+    i++;
+  }
+
   return 0;
 }
 
@@ -123,11 +245,20 @@ int main(int argc, char *argv[]) {
 
     buf[bytes_recv] = '\0';
 
-    if ((send(new_fd, "hola", 4, 0)) < 0) {
-      perror("send");
+    struct HttpRequest req;
+
+    if (parse_request(buf, sizeof(buf), &req) == -1) {
+      perror("parse_request");
       close(new_fd);
       continue;
     }
+
+    printf("%s %s %s %s %c\n", req.method, req.path, req.version, req.body,
+           (int)req.size_h);
+
+    const char *html_body = "<html><body><h1>Hola :)</h1></body></html>";
+
+    send_response(new_fd, 200, "OK", "text/html", html_body, strlen(html_body));
 
     close(new_fd);
   }
