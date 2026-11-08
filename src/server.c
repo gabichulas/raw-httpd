@@ -67,15 +67,6 @@ void send_response(int fd, int status, char *reason, const char *type,
   }
 }
 
-int check_rnrn(char *delim) {
-  if (*(delim + 1) == '\r') {
-    if (*(delim + 2) == '\n') {
-      return 0;
-    }
-  }
-  return -1;
-}
-
 int parse_request(char *buf, size_t len, struct HttpRequest *req) {
   int i = 0;
   if (len <= 0)
